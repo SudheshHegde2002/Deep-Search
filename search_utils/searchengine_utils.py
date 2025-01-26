@@ -41,7 +41,7 @@ class ImageSearchEngine:
             return None
 
     def scan_system(self, callback=None):
-        image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.gif'}
+        image_extensions = {'.jpg', '.jpeg', '.png','.gif'}
         
         # Check if we have existing data
         if os.path.exists(self.data_file):
