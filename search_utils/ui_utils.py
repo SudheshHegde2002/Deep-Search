@@ -78,8 +78,8 @@ class SearchGUI:
         self.master = master
         self.master.title("Modern Image Search System")
         
-        # Remove window border
-        self.master.overrideredirect(True)
+        # Use native window chrome so the app appears in the taskbar
+        self.master.overrideredirect(False)
         
         # Create a frame to simulate window with custom border
         self.window_frame = ctk.CTkFrame(master, corner_radius=0)
@@ -96,7 +96,14 @@ class SearchGUI:
         self.result_queue = queue.Queue()
         
         self.create_widgets()
-        self.start_initial_scan()
+        # Reflect loaded index state in the progress label on startup
+        if getattr(self.search_engine, 'image_paths', None):
+            try:
+                self.progress_label.configure(
+                    text=f"Loaded existing image database ({len(self.search_engine.image_paths)} images)"
+                )
+            except Exception:
+                pass
         
         # Make window draggable
         self.make_draggable()
@@ -206,26 +213,69 @@ class SearchGUI:
                                       border_width=1,
                                       corner_radius=10)
         search_button.grid(row=0, column=1, sticky="e")
+
+        # Index button to let user pick a folder to index (no auto full system scan)
+        index_button = ctk.CTkButton(search_frame,
+                                     text="Index Folder",
+                                     command=self.index_folder,
+                                     font=("Helvetica", 12),
+                                     fg_color="transparent",
+                                     border_width=1,
+                                     corner_radius=10)
+        index_button.grid(row=0, column=2, sticky="e", padx=(10, 0))
+
+        # Load Index button to let user pick an existing .pkl index
+        load_button = ctk.CTkButton(search_frame,
+                                    text="Load Index",
+                                    command=self.load_index,
+                                    font=("Helvetica", 12),
+                                    fg_color="transparent",
+                                    border_width=1,
+                                    corner_radius=10)
+        load_button.grid(row=0, column=3, sticky="e", padx=(10, 0))
         
         # Scrollable results frame
         self.results_frame = ctk.CTkScrollableFrame(self.main_container, 
                                                     orientation="vertical")
         self.results_frame.grid(row=2, column=0, sticky="nsew", padx=10, pady=10)
 
-    def start_initial_scan(self):
-        Thread(target=self.initial_scan_thread).start()
-    
-    def initial_scan_thread(self):
-        def update_progress(message):
-            self.result_queue.put((message, "progress"))
-            self.master.after(100, self.check_queue)
+    def index_folder(self):
+        folder = filedialog.askdirectory(title="Select folder to index")
+        if not folder:
+            return
+        # Create a per-folder database filename
+        folder_name = os.path.basename(folder.rstrip("/\\")) or "index"
+        data_file = f"image_search_data_{folder_name}.pkl"
+        self.progress_label.configure(text=f"Indexing: {folder}")
         
-        try:
-            self.search_engine.scan_system(callback=update_progress)
-            self.result_queue.put(("System scan complete", "info"))
-        except Exception as e:
-            self.result_queue.put((f"Error scanning system: {e}", "error"))
-        self.master.after(100, self.check_queue)
+        def run_index():
+            def update_progress(message):
+                self.result_queue.put((message, "progress"))
+                self.master.after(100, self.check_queue)
+            try:
+                self.search_engine.scan_system(callback=update_progress,
+                                               root_dirs=[folder],
+                                               data_file=data_file)
+                self.result_queue.put((f"Indexing complete: {data_file}", "progress"))
+            except Exception as e:
+                self.result_queue.put((f"Error indexing: {e}", "error"))
+            self.master.after(100, self.check_queue)
+        Thread(target=run_index).start()
+
+    def load_index(self):
+        file_path = filedialog.askopenfilename(
+            title="Select index file",
+            filetypes=[("Pickle files", "*.pkl"), ("All files", "*.*")]
+        )
+        if not file_path:
+            return
+        ok = self.search_engine.load_database(file_path)
+        if ok:
+            self.progress_label.configure(
+                text=f"Loaded existing image database ({len(self.search_engine.image_paths)} images)"
+            )
+        else:
+            self.progress_label.configure(text="Failed to load index file")
     
     def start_search(self):
         query = self.search_var.get()
@@ -251,6 +301,8 @@ class SearchGUI:
             if msg_type == "results":
                 self.display_results(message)
             elif msg_type == "progress":
+                self.progress_label.configure(text=message)
+            elif msg_type == "error":
                 self.progress_label.configure(text=message)
         except queue.Empty:
             pass

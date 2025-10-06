@@ -2,6 +2,7 @@ import torch
 from PIL import Image
 from transformers import CLIPProcessor, CLIPModel
 from pathlib import Path
+import sys
 import os
 import torch
 from PIL import Image
@@ -19,7 +20,42 @@ class ImageSearchEngine:
         
         self.image_paths = []
         self.image_features = []
-        self.data_file = "image_search_data.pkl"
+        # Resolve database path based on launch context
+        if getattr(sys, 'frozen', False):
+            # When running as an exe, look next to the exe
+            base_dir = os.path.dirname(sys.executable)
+            self.data_file = os.path.abspath(os.path.join(base_dir, "image_search_data.pkl"))
+        else:
+            # When running from source, look in the project root (one level above this file)
+            project_root = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir))
+            self.data_file = os.path.join(project_root, "image_search_data.pkl")
+        
+        # Load existing database if present
+        try:
+            if os.path.exists(self.data_file):
+                with open(self.data_file, 'rb') as f:
+                    saved_data = pickle.load(f)
+                    self.image_paths = saved_data.get('paths', [])
+                    self.image_features = saved_data.get('features', [])
+        except Exception:
+            # Ignore load errors; start without an index
+            self.image_paths = []
+            self.image_features = []
+
+    def load_database(self, file_path):
+        """Load an existing index database from a specified pkl file."""
+        try:
+            if not os.path.exists(file_path):
+                return False
+            with open(file_path, 'rb') as f:
+                saved_data = pickle.load(f)
+            self.image_paths = saved_data.get('paths', [])
+            self.image_features = saved_data.get('features', [])
+            # Update default data_file to this path for subsequent saves
+            self.data_file = file_path
+            return bool(self.image_paths) and bool(self.image_features)
+        except Exception:
+            return False
         
     def get_system_drives(self):
         """Get all available drives on Windows"""
@@ -40,12 +76,15 @@ class ImageSearchEngine:
         except Exception:
             return None
 
-    def scan_system(self, callback=None):
+    def scan_system(self, callback=None, root_dirs=None, data_file=None):
         image_extensions = {'.jpg', '.jpeg', '.png','.gif'}
         
-        # Check if we have existing data
-        if os.path.exists(self.data_file):
-            with open(self.data_file, 'rb') as f:
+        # Decide output database file
+        target_data_file = data_file if data_file else self.data_file
+        
+        # If a database already exists at target path, load and return
+        if os.path.exists(target_data_file):
+            with open(target_data_file, 'rb') as f:
                 saved_data = pickle.load(f)
                 self.image_paths = saved_data['paths']
                 self.image_features = saved_data['features']
@@ -53,16 +92,20 @@ class ImageSearchEngine:
                 callback("Loaded existing image database")
             return
 
-        drives = self.get_system_drives()
+        # Require explicit roots; do NOT scan entire system by default
+        if not root_dirs:
+            if callback:
+                callback("No folders provided to index.")
+            return
         
         with ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
             futures = []
             
-            for drive in drives:
+            for root in root_dirs:
                 if callback:
-                    callback(f"Scanning drive: {drive}")
+                    callback(f"Scanning folder: {root}")
                 
-                for path in Path(drive).rglob('*'):
+                for path in Path(root).rglob('*'):
                     if path.suffix.lower() in image_extensions:
                         futures.append(executor.submit(self.process_image, path))
             
@@ -81,7 +124,7 @@ class ImageSearchEngine:
                     callback(f"Processed {processed}/{total} images")
 
         # Save the data
-        with open(self.data_file, 'wb') as f:
+        with open(target_data_file, 'wb') as f:
             pickle.dump({
                 'paths': self.image_paths,
                 'features': self.image_features
