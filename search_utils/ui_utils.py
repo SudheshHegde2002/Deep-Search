@@ -85,8 +85,7 @@ class SearchGUI:
         self.window_frame = ctk.CTkFrame(master, corner_radius=0)
         self.window_frame.pack(fill="both", expand=True)
         
-        # Add custom close button
-        self.create_title_bar()
+        # Use native window controls only (no custom title bar)
         
         # Main content container
         self.main_container = ctk.CTkFrame(self.window_frame, corner_radius=0)
@@ -105,8 +104,7 @@ class SearchGUI:
             except Exception:
                 pass
         
-        # Make window draggable
-        self.make_draggable()
+        # Use native window dragging
 
     def create_title_bar(self):
         title_bar = ctk.CTkFrame(self.window_frame, height=30, corner_radius=0)
