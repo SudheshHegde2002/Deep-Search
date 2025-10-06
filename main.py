@@ -3,7 +3,7 @@ from search_utils.ui_utils import SearchGUI
 
 def main():
     root = tk.Tk()
-    root.geometry("1920x1080")
+    root.geometry("1024x768")
     app = SearchGUI(root)
     root.mainloop()
 

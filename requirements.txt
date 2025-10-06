@@ -1,0 +1,9 @@
+# Core ML & model tooling
+torch
+transformers
+
+# Imaging
+pillow
+
+# UI
+customtkinter
